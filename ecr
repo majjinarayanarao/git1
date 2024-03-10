@@ -45,7 +45,19 @@ pipeline {
                     // Clean up any other artifacts or files
                     // For example, you might want to delete temporary files or directories
                 }
+           }
+        }
+      
+        stage('Deploy to EKS') {
+            steps {
+                script {
+                    withAWS(region: AWS_DEFAULT_REGION, credentials: 'aws') {
+                        sh "aws eks update-kubeconfig --name ${EKS_CLUSTER_NAME}"
+                        sh "kubectl apply -f your-kubernetes-manifests.yaml -n ${EKS_NAMESPACE}"
+                    }
+                }
             }
         }
     }
 }
+
