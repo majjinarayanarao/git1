@@ -1,0 +1,2 @@
+real time :
+git - jenkins(splunk) -maven(npm) - sonarqube-dependency check - build - nexus-docker(image & tag )-trivy image scan - ecr - k8s(role) helm promthesis grafana(security)
