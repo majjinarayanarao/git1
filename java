@@ -19,7 +19,7 @@ class GFG {
 		Foo ob = new Foo();
 
 		// calling an instance method in the class 'Foo'.
-		ob.geek("GeeksforGeeks");
+		ob.geek("GeeksfjbhjorGeeks");
 		System.out.println(ob.name);
 	}
 }
