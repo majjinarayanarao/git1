@@ -1,0 +1,128 @@
+pipeline {
+    tools {
+        jdk 'Java17'
+        maven 'Maven3'
+    }
+    environment {
+	    APP_NAME = "register-app-pipeline"
+            RELEASE = "1.0.0"
+            DOCKER_USER = "ashfaque9x"
+            DOCKER_PASS = 'dockerhub'
+            IMAGE_NAME = "${DOCKER_USER}" + "/" + "${APP_NAME}"
+            IMAGE_TAG = "${RELEASE}-${BUILD_NUMBER}"
+            SCANNER_HOME = tool 'SonarQube-Scanner'
+    }
+    stages{
+        stage("Cleanup Workspace"){
+                steps {
+                cleanWs()
+                }
+        }
+
+        stage("Checkout from SCM"){
+                steps {
+                    git branch: 'main', credentialsId: 'github', url: 'https://github.com/Ashfaque-9x/register-app'
+                }
+        }
+
+        stage("Build Application"){
+            steps {
+                sh "mvn clean package"
+            }
+
+       }
+
+       stage("Test Application"){
+           steps {
+                 sh "mvn test"
+           }
+       }
+       stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'dk'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('SonarQube Analysis') {
+            steps {
+                script {
+                    // Perform SonarQube analysis
+                    withSonarQubeEnv('SonarQube-installations') {
+                        sh '''
+                            mvn clean verify sonar:sonar \
+                              -Dsonar.projectKey=youtube \
+                              -Dsonar.host.url=http://3.110.178.54:9000 \
+                              -Dsonar.login=squ_eddd02a7725bb811c9ca39fac4d86e9c9d25b5d7
+                        '''
+                    }
+                }
+            }
+        }
+        stage('Quality Gate') {
+            steps {
+                script {
+                    // Wait for quality gate
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar'
+                }
+            }
+        }
+        stage('TRIVY FS SCAN') {
+            steps {
+                script {
+                    sh 'trivy fs . > trivyfs.txt'
+                }
+            }
+        }
+
+        stage("Build & Push Docker Image") {
+            steps {
+                script {
+                    def dockerImage
+                    docker.withRegistry('https://hub.docker.com/', DOCKER_USER, DOCKER_PASS) {
+                        dockerImage = docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                        dockerImage.push('latest') 
+                    }
+                }
+            }
+        }
+       stage("Trivy Scan") {
+           steps {
+               script {
+	            sh 'trivy image mnr143/regi:latest > trivyimage.txt'
+           }
+       }
+
+       stage ('Cleanup Artifacts') {
+           steps {
+               script {
+                    sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker rmi ${IMAGE_NAME}:latest"
+               }
+          }
+       }
+       stage('Update Deployment File') {
+        environment {
+             GIT_REPO_NAME = "git1"
+             GIT_USER_NAME = "majjinarayanarao"
+             GITHUB_TOKEN = "ghp_00ohevgOR53R2U4oLNhpEfoUCRu3kWSLt"
+        }
+        steps {
+            withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                sh '''
+                    git config user.email "abhishek.xyz@gmail.com"
+                    git config user.name "Abhishek Veeramalla"
+                    BUILD_NUMBER=${BUILD_NUMBER}
+                    sed -i "s/replaceImageTag/${BUILD_NUMBER}/g" java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+                    git add java-maven-sonar-argocd-helm-k8s/spring-boot-app-manifests/deployment.yml
+                    git commit -m "Update deployment image to version ${BUILD_NUMBER}"
+                    git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} 
+                    git config pull.rebase false
+                    git config pull.rebase true
+                    git config pull.ff only
+                    git push origin main:tmp
+            '''
+            }
+        }
+    }
+  }
+}
